@@ -1,0 +1,62 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="VectorEditor.MainWindow"
+        Width="900" Height="600"
+        Background="#20232A"
+        Title="VectorEditor — видно!">
+
+  <Grid RowDefinitions="Auto,Auto,*" Margin="0">
+    <!-- ШАПКА -->
+    <Border Background="#61DAFB" Padding="12" Grid.Row="0">
+      <TextBlock Text="VECTOR EDITOR" FontSize="24" FontWeight="Bold" Foreground="#20232A"/>
+    </Border>
+
+    <!-- ПАНЕЛЬ -->
+    <StackPanel Orientation="Horizontal" Spacing="8" Margin="12,4,12,0" Grid.Row="1">
+
+      <!-- Инструменты -->
+      <Button Content="Прямоугольник" Click="OnRectToolClicked"
+              Background="White" Foreground="Black"/>
+      <Button Content="Линия" Click="OnLineToolClicked"
+              Background="White" Foreground="Black"/>
+
+      <!-- Цвет контура -->
+      <TextBlock Text="Цвет контура:" Foreground="White" Margin="16,0,0,0" VerticalAlignment="Center"/>
+      <Button Content="Синий" Click="OnStrokeBlue"
+              Background="White" Foreground="Black" Margin="2,0"/>
+      <Button Content="Красный" Click="OnStrokeRed"
+              Background="White" Foreground="Black" Margin="2,0"/>
+      <Button Content="Чёрный" Click="OnStrokeBlack"
+              Background="White" Foreground="Black" Margin="2,0"/>
+
+      <!-- Цвет заливки -->
+      <TextBlock Text="Заливка:" Foreground="White" Margin="16,0,0,0" VerticalAlignment="Center"/>
+      <Button Content="Нет" Click="OnFillNone"
+              Background="White" Foreground="Black" Margin="2,0"/>
+      <Button Content="Фиолет" Click="OnFillViolet"
+              Background="White" Foreground="Black" Margin="2,0"/>
+      <Button Content="Голубой" Click="OnFillBlue"
+              Background="White" Foreground="Black" Margin="2,0"/>
+      <Button Content="Жёлтый" Click="OnFillYellow"
+              Background="White" Foreground="Black" Margin="2,0"/>
+
+      <!-- Толщина -->
+      <TextBlock Text="Толщина:" Foreground="White" Margin="16,0,0,0" VerticalAlignment="Center"/>
+      <ComboBox Width="70" SelectedIndex="1" SelectionChanged="OnThicknessChanged"
+                Background="White" Foreground="Black">
+        <ComboBoxItem Content="1"/>
+        <ComboBoxItem Content="2"/>
+        <ComboBoxItem Content="4"/>
+        <ComboBoxItem Content="6"/>
+      </ComboBox>
+    </StackPanel>
+
+    <!-- ХОЛСТ -->
+    <Border Grid.Row="2" Margin="12" Background="#888" CornerRadius="6" Padding="6">
+      <Canvas Background="White"
+              PointerPressed="OnCanvasPointerPressed"
+              PointerMoved="OnCanvasPointerMoved"
+              PointerReleased="OnCanvasPointerReleased" />
+    </Border>
+  </Grid>
+</Window>

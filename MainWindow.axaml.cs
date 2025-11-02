@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
@@ -9,43 +10,162 @@ namespace VectorEditor
 {
     public partial class MainWindow : Window
     {
-        // режимы
+        // ----- инструменты -----
         private enum Tool
         {
-            Select,     // двигаем уже нарисованное
-            Rectangle,  // рисуем прямоугольник
-            Line        // рисуем линию
+            Select,
+            Rectangle,
+            Line
         }
 
-        private Tool _currentTool = Tool.Rectangle; // по умолчанию рисуем
+        private Tool _currentTool = Tool.Rectangle;
 
-        // ====== РИСОВАНИЕ ======
-        private bool _isDrawingTwoClick = false; // ждём второй клик
-        private bool _isDrawingDrag = false;     // тянем
+        // ----- какая панель сейчас открыта -----
+        private enum PanelKind
+        {
+            None,
+            Shapes,
+            Stroke,
+            Fill,
+            Thickness
+        }
+
+        private PanelKind _openedPanel = PanelKind.None;
+
+        // ----- рисование -----
+        private bool _isDrawingTwoClick = false;
+        private bool _isDrawingDrag = false;
         private Point _startPoint;
         private Canvas? _activeCanvas;
         private Shape? _previewShape;
 
-        // ====== ПЕРЕМЕЩЕНИЕ (drag) ======
+        // ----- перемещение -----
         private bool _isMoving = false;
         private Shape? _movingShape;
         private Point _movePointerStart;
-        private Point _moveShapeStart;   // для прямоугольника
-        private Point _moveLineStart;    // для линии
+        private Point _moveShapeStart;
+        private Point _moveLineStart;
         private Point _moveLineEnd;
 
-        // ====== СТИЛИ ======
+        // ----- стили -----
         private IBrush _currentStroke = Brushes.DarkSlateBlue;
-        // делаем НЕ прозрачную заливку сразу:
         private IBrush _currentFill = new SolidColorBrush(Color.FromRgb(180, 205, 255));
         private double _currentStrokeThickness = 2;
+
+        // ----- undo/redo -----
+        private const int MaxHistory = 5;
+        private readonly List<ICanvasAction> _undoStack = new();
+        private readonly List<ICanvasAction> _redoStack = new();
 
         public MainWindow()
         {
             InitializeComponent();
         }
 
-        // ----------------- КНОПКИ РЕЖИМОВ -----------------
+        // ================== ПАНЕЛИ (показать / спрятать) ==================
+        private StackPanel? GetOptionsHost() => this.FindControl<StackPanel>("OptionsHost");
+
+        private void ShowPanel(PanelKind kind)
+        {
+            var host = GetOptionsHost();
+            if (host is null) return;
+
+            // если нажали ту же самую — просто спрячем
+            if (_openedPanel == kind)
+            {
+                host.Children.Clear();
+                _openedPanel = PanelKind.None;
+                return;
+            }
+
+            host.Children.Clear();
+
+            switch (kind)
+            {
+                case PanelKind.Shapes:
+                    {
+                        var b1 = MakeTopButton("Прямоугольник", OnRectToolClicked);
+                        var b2 = MakeTopButton("Линия", OnLineToolClicked);
+                        host.Children.Add(b1);
+                        host.Children.Add(b2);
+                    }
+                    break;
+
+                case PanelKind.Stroke:
+                    {
+                        host.Children.Add(MakeTopButton("Синий", OnStrokeBlue));
+                        host.Children.Add(MakeTopButton("Красный", OnStrokeRed));
+                        host.Children.Add(MakeTopButton("Чёрный", OnStrokeBlack));
+                        host.Children.Add(MakeTopButton("Зелёный", OnStrokeGreen));
+                        host.Children.Add(MakeTopButton("Оранжевый", OnStrokeOrange));
+                    }
+                    break;
+
+                case PanelKind.Fill:
+                    {
+                        host.Children.Add(MakeTopButton("Нет", OnFillNone));
+                        host.Children.Add(MakeTopButton("Фиолет", OnFillViolet));
+                        host.Children.Add(MakeTopButton("Голубая", OnFillBlue));
+                        host.Children.Add(MakeTopButton("Жёлтая", OnFillYellow));
+                        host.Children.Add(MakeTopButton("Розовая", OnFillPink));
+                        host.Children.Add(MakeTopButton("Салатовая", OnFillGreen));
+                    }
+                    break;
+
+                case PanelKind.Thickness:
+                    {
+                        var text = new TextBlock
+                        {
+                            Text = "Толщина:",
+                            Foreground = Brushes.White,
+                            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+                        };
+                        host.Children.Add(text);
+
+                        var cb = new ComboBox
+                        {
+                            Width = 80,
+                            Background = Brushes.White,
+                            Foreground = Brushes.Black,
+                            Items = { "1", "2", "4", "6" },
+                            SelectedIndex = _currentStrokeThickness switch
+                            {
+                                1 => 0,
+                                2 => 1,
+                                4 => 2,
+                                6 => 3,
+                                _ => 1
+                            }
+                        };
+                        cb.SelectionChanged += OnThicknessChangedFromCombo;
+                        host.Children.Add(cb);
+                    }
+                    break;
+            }
+
+            _openedPanel = kind;
+        }
+
+        private Button MakeTopButton(string text, EventHandler<Avalonia.Interactivity.RoutedEventArgs> handler)
+        {
+            var btn = new Button
+            {
+                Content = text,
+                Background = Brushes.White,
+                Foreground = Brushes.Black,
+                Margin = new Thickness(2, 0, 2, 0)
+            };
+            btn.Click += handler;
+            return btn;
+        }
+
+        // кнопки в верхней строке
+        public void OnShowShapes(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPanel(PanelKind.Shapes);
+        public void OnShowStroke(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPanel(PanelKind.Stroke);
+        public void OnShowFill(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPanel(PanelKind.Fill);
+        public void OnShowThickness(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPanel(PanelKind.Thickness);
+
+        // ================== РЕЖИМЫ ==================
         public void OnSelectToolClicked(object? s, Avalonia.Interactivity.RoutedEventArgs e)
         {
             _currentTool = Tool.Select;
@@ -64,7 +184,7 @@ namespace VectorEditor
             ResetDrawingState();
         }
 
-        // ----------------- КНОПКИ СТИЛЕЙ -----------------
+        // ================== СТИЛИ: КОНТУР ==================
         public void OnStrokeBlue(object? s, Avalonia.Interactivity.RoutedEventArgs e) =>
             _currentStroke = Brushes.DarkSlateBlue;
 
@@ -74,35 +194,72 @@ namespace VectorEditor
         public void OnStrokeBlack(object? s, Avalonia.Interactivity.RoutedEventArgs e) =>
             _currentStroke = Brushes.Black;
 
+        public void OnStrokeGreen(object? s, Avalonia.Interactivity.RoutedEventArgs e) =>
+            _currentStroke = Brushes.ForestGreen;
+
+        public void OnStrokeOrange(object? s, Avalonia.Interactivity.RoutedEventArgs e) =>
+            _currentStroke = new SolidColorBrush(Color.FromRgb(255, 140, 0));
+
+        // ================== СТИЛИ: ЗАЛИВКА ==================
         public void OnFillNone(object? s, Avalonia.Interactivity.RoutedEventArgs e) =>
             _currentFill = Brushes.Transparent;
 
         public void OnFillViolet(object? s, Avalonia.Interactivity.RoutedEventArgs e) =>
-            _currentFill = new SolidColorBrush(Color.FromRgb(140, 110, 220)); // плотная
+            _currentFill = new SolidColorBrush(Color.FromRgb(140, 110, 220));
 
         public void OnFillBlue(object? s, Avalonia.Interactivity.RoutedEventArgs e) =>
-            _currentFill = new SolidColorBrush(Color.FromRgb(120, 180, 255)); // плотная голубая
+            _currentFill = new SolidColorBrush(Color.FromRgb(120, 180, 255));
 
         public void OnFillYellow(object? s, Avalonia.Interactivity.RoutedEventArgs e) =>
-            _currentFill = new SolidColorBrush(Color.FromRgb(255, 235, 80)); // плотная жёлтая
+            _currentFill = new SolidColorBrush(Color.FromRgb(255, 235, 80));
 
-        public void OnThicknessChanged(object? s, SelectionChangedEventArgs e)
+        public void OnFillPink(object? s, Avalonia.Interactivity.RoutedEventArgs e) =>
+            _currentFill = new SolidColorBrush(Color.FromRgb(255, 150, 200));
+
+        public void OnFillGreen(object? s, Avalonia.Interactivity.RoutedEventArgs e) =>
+            _currentFill = new SolidColorBrush(Color.FromRgb(190, 255, 170));
+
+        // ================== ТОЛЩИНА ==================
+        public void OnThicknessChangedFromCombo(object? s, SelectionChangedEventArgs e)
         {
-            if (s is ComboBox cb && cb.SelectedItem is ComboBoxItem item && item.Content is string text)
+            if (s is ComboBox cb && cb.SelectedItem is string txt)
             {
-                if (double.TryParse(text, out double th))
+                if (double.TryParse(txt, out double th))
                     _currentStrokeThickness = th;
             }
         }
 
-        // ----------------- ХОЛСТ: POINTER PRESSED -----------------
+        // ================== UNDO/REDO ==================
+        public void OnUndo(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (_undoStack.Count == 0) return;
+            var action = _undoStack[^1];
+            _undoStack.RemoveAt(_undoStack.Count - 1);
+            action.Undo();
+            _redoStack.Add(action);
+            if (_redoStack.Count > MaxHistory)
+                _redoStack.RemoveAt(0);
+        }
+
+        public void OnRedo(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (_redoStack.Count == 0) return;
+            var action = _redoStack[^1];
+            _redoStack.RemoveAt(_redoStack.Count - 1);
+            action.Redo();
+            _undoStack.Add(action);
+            if (_undoStack.Count > MaxHistory)
+                _undoStack.RemoveAt(0);
+        }
+
+        // ================== ХОЛСТ ==================
         public void OnCanvasPointerPressed(object? sender, PointerPressedEventArgs e)
         {
             if (sender is not Canvas canvas) return;
             _activeCanvas = canvas;
             var pos = e.GetPosition(canvas);
 
-            // 1. Режим ПЕРЕМЕЩЕНИЯ
+            // перемещение
             if (_currentTool == Tool.Select)
             {
                 var hit = HitTestShape(canvas, pos);
@@ -122,16 +279,14 @@ namespace VectorEditor
                         _moveLineEnd = line.EndPoint;
                     }
 
-                    // захватываем указатель, чтобы тачпад тоже тянул
                     e.Pointer.Capture(canvas);
                 }
                 return;
             }
 
-            // 2. Режим РИСОВАНИЯ (rectangle / line)
+            // рисование
             if (!_isDrawingTwoClick && !_isDrawingDrag)
             {
-                // первый клик
                 _isDrawingTwoClick = true;
                 _startPoint = pos;
                 CreatePreview(canvas, pos);
@@ -139,25 +294,22 @@ namespace VectorEditor
             }
             else if (_isDrawingTwoClick)
             {
-                // второй клик — зафиксировать
                 CommitShape(pos);
                 return;
             }
 
-            // drag-рисование (если получится удержать)
             _isDrawingDrag = true;
             _startPoint = pos;
             CreatePreview(canvas, pos);
             e.Pointer.Capture(canvas);
         }
 
-        // ----------------- ХОЛСТ: POINTER MOVED -----------------
         public void OnCanvasPointerMoved(object? sender, PointerEventArgs e)
         {
             if (_activeCanvas is null) return;
             var pos = e.GetPosition(_activeCanvas);
 
-            // перетаскивание фигуры
+            // двигаем
             if (_isMoving && _movingShape is not null)
             {
                 var dx = pos.X - _movePointerStart.X;
@@ -173,23 +325,52 @@ namespace VectorEditor
                     line.StartPoint = new Point(_moveLineStart.X + dx, _moveLineStart.Y + dy);
                     line.EndPoint = new Point(_moveLineEnd.X + dx, _moveLineEnd.Y + dy);
                 }
-
                 return;
             }
 
-            // обновление превью при рисовании
+            // обновляем превью
             if ((_isDrawingTwoClick || _isDrawingDrag) && _previewShape is not null)
             {
                 UpdatePreview(pos);
             }
         }
 
-        // ----------------- ХОЛСТ: POINTER RELEASED -----------------
         public void OnCanvasPointerReleased(object? sender, PointerReleasedEventArgs e)
         {
-            // закончили перетаскивание
+            // закончили перемещение
             if (_isMoving)
             {
+                if (_activeCanvas is not null && _movingShape is not null)
+                {
+                    ICanvasAction? moveAction = null;
+
+                    if (_movingShape is Rectangle rect)
+                    {
+                        var newX = Canvas.GetLeft(rect);
+                        var newY = Canvas.GetTop(rect);
+                        if (Math.Abs(newX - _moveShapeStart.X) > 0.1 ||
+                            Math.Abs(newY - _moveShapeStart.Y) > 0.1)
+                        {
+                            moveAction = new MoveRectAction(rect, _moveShapeStart, new Point(newX, newY));
+                        }
+                    }
+                    else if (_movingShape is Line line)
+                    {
+                        var newStart = line.StartPoint;
+                        var newEnd = line.EndPoint;
+                        if (Math.Abs(newStart.X - _moveLineStart.X) > 0.1 ||
+                            Math.Abs(newStart.Y - _moveLineStart.Y) > 0.1)
+                        {
+                            moveAction = new MoveLineAction(line,
+                                                            _moveLineStart, _moveLineEnd,
+                                                            newStart, newEnd);
+                        }
+                    }
+
+                    if (moveAction is not null)
+                        PushAction(moveAction);
+                }
+
                 _isMoving = false;
                 _movingShape = null;
                 e.Pointer.Capture(null);
@@ -201,14 +382,13 @@ namespace VectorEditor
             {
                 _isDrawingDrag = false;
                 e.Pointer.Capture(null);
-
                 if (_activeCanvas is null) return;
                 var pos = e.GetPosition(_activeCanvas);
                 CommitShape(pos);
             }
         }
 
-        // ----------------- ПРЕВЬЮ / РИСОВАНИЕ -----------------
+        // ================== РИСОВАНИЕ / ПРЕВЬЮ ==================
         private void CreatePreview(Canvas canvas, Point start)
         {
             if (_previewShape is not null)
@@ -263,12 +443,13 @@ namespace VectorEditor
         {
             if (_activeCanvas is null) return;
 
-            // убрать превью
             if (_previewShape is not null)
             {
                 _activeCanvas.Children.Remove(_previewShape);
                 _previewShape = null;
             }
+
+            Shape? finalShape = null;
 
             switch (_currentTool)
             {
@@ -281,6 +462,7 @@ namespace VectorEditor
                     };
                     PlaceRect(rect, _startPoint, pos);
                     _activeCanvas.Children.Add(rect);
+                    finalShape = rect;
                     break;
 
                 case Tool.Line:
@@ -291,14 +473,18 @@ namespace VectorEditor
                     };
                     PlaceLine(line, _startPoint, pos);
                     _activeCanvas.Children.Add(line);
+                    finalShape = line;
                     break;
             }
+
+            if (finalShape is not null)
+                PushAction(new AddShapeAction(_activeCanvas, finalShape));
 
             _isDrawingTwoClick = false;
             _activeCanvas = null;
         }
 
-        // ----------------- УТИЛИТЫ -----------------
+        // ================== УТИЛИТЫ ==================
         private void PlaceRect(Rectangle rect, Point p1, Point p2)
         {
             double x = Math.Min(p1.X, p2.X);
@@ -320,7 +506,6 @@ namespace VectorEditor
 
         private Shape? HitTestShape(Canvas canvas, Point p)
         {
-            // с конца — сверху
             for (int i = canvas.Children.Count - 1; i >= 0; i--)
             {
                 if (canvas.Children[i] is Shape shape)
@@ -367,6 +552,101 @@ namespace VectorEditor
             _previewShape = null;
             _movingShape = null;
             _activeCanvas = null;
+        }
+
+        // ================== ИСТОРИЯ ==================
+        private void PushAction(ICanvasAction action)
+        {
+            _undoStack.Add(action);
+            if (_undoStack.Count > MaxHistory)
+                _undoStack.RemoveAt(0);
+            _redoStack.Clear();
+        }
+
+        // ====== действия ======
+        private interface ICanvasAction
+        {
+            void Undo();
+            void Redo();
+        }
+
+        private class AddShapeAction : ICanvasAction
+        {
+            private readonly Canvas _canvas;
+            private readonly Shape _shape;
+
+            public AddShapeAction(Canvas canvas, Shape shape)
+            {
+                _canvas = canvas;
+                _shape = shape;
+            }
+
+            public void Undo()
+            {
+                _canvas.Children.Remove(_shape);
+            }
+
+            public void Redo()
+            {
+                if (!_canvas.Children.Contains(_shape))
+                    _canvas.Children.Add(_shape);
+            }
+        }
+
+        private class MoveRectAction : ICanvasAction
+        {
+            private readonly Rectangle _rect;
+            private readonly Point _oldPos;
+            private readonly Point _newPos;
+
+            public MoveRectAction(Rectangle rect, Point oldPos, Point newPos)
+            {
+                _rect = rect;
+                _oldPos = oldPos;
+                _newPos = newPos;
+            }
+
+            public void Undo()
+            {
+                Canvas.SetLeft(_rect, _oldPos.X);
+                Canvas.SetTop(_rect, _oldPos.Y);
+            }
+
+            public void Redo()
+            {
+                Canvas.SetLeft(_rect, _newPos.X);
+                Canvas.SetTop(_rect, _newPos.Y);
+            }
+        }
+
+        private class MoveLineAction : ICanvasAction
+        {
+            private readonly Line _line;
+            private readonly Point _oldStart;
+            private readonly Point _oldEnd;
+            private readonly Point _newStart;
+            private readonly Point _newEnd;
+
+            public MoveLineAction(Line line, Point oldStart, Point oldEnd, Point newStart, Point newEnd)
+            {
+                _line = line;
+                _oldStart = oldStart;
+                _oldEnd = oldEnd;
+                _newStart = newStart;
+                _newEnd = newEnd;
+            }
+
+            public void Undo()
+            {
+                _line.StartPoint = _oldStart;
+                _line.EndPoint = _oldEnd;
+            }
+
+            public void Redo()
+            {
+                _line.StartPoint = _newStart;
+                _line.EndPoint = _newEnd;
+            }
         }
     }
 }

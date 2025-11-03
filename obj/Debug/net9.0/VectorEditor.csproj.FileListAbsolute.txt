@@ -65,10 +65,10 @@
 /Users/masha/VectorEditor/obj/Debug/net9.0/VectorEditor.AssemblyInfoInputs.cache
 /Users/masha/VectorEditor/obj/Debug/net9.0/VectorEditor.AssemblyInfo.cs
 /Users/masha/VectorEditor/obj/Debug/net9.0/VectorEditor.csproj.CoreCompileInputs.cache
+/Users/masha/VectorEditor/obj/Debug/net9.0/VectorEditor.sourcelink.json
 /Users/masha/VectorEditor/obj/Debug/net9.0/VectorEd.5FD34CD2.Up2Date
 /Users/masha/VectorEditor/obj/Debug/net9.0/VectorEditor.dll
 /Users/masha/VectorEditor/obj/Debug/net9.0/refint/VectorEditor.dll
 /Users/masha/VectorEditor/obj/Debug/net9.0/VectorEditor.pdb
 /Users/masha/VectorEditor/obj/Debug/net9.0/VectorEditor.genruntimeconfig.cache
 /Users/masha/VectorEditor/obj/Debug/net9.0/ref/VectorEditor.dll
-/Users/masha/VectorEditor/obj/Debug/net9.0/VectorEditor.sourcelink.json

@@ -3,65 +3,57 @@
         x:Class="VectorEditor.MainWindow"
         Width="900" Height="600"
         Background="#20232A"
-        Title="VectorEditor — видно!">
+        Title="VectorEditor — zoom &amp; pan">
   <Grid RowDefinitions="Auto,Auto,*">
-    <!-- ШАПКА -->
-    <Border Grid.Row="0"
-            Background="#61DAFB"
-            Padding="12">
+    <!-- Хедер -->
+    <Border Grid.Row="0" Background="#61DAFB" Padding="12">
       <TextBlock Text="VECTOR EDITOR"
-                 FontSize="24"
+                 FontSize="22"
                  FontWeight="Bold"
-                 Foreground="#20232A" />
+                 Foreground="#20232A"/>
     </Border>
 
-    <!-- СТРОКА КНОПОК -->
+    <!-- Верхняя панель кнопок -->
     <StackPanel Grid.Row="1"
                 Orientation="Horizontal"
                 Spacing="8"
-                Margin="12,4,12,0">
+                Margin="12,6,12,0">
+      <Button x:Name="UndoBtn"    Content="Отменить"  Background="White" Foreground="Black"/>
+      <Button x:Name="RedoBtn"    Content="Повторить" Background="White" Foreground="Black"/>
 
-      <!-- 1. отмена / повтор -->
-      <Button Content="Отменить" Click="OnUndo"
-              Background="White" Foreground="Black"/>
-      <Button Content="Вернуть" Click="OnRedo"
-              Background="White" Foreground="Black"/>
+      <Button x:Name="SelectBtn"  Content="Выделить"  Background="White" Foreground="Black"/>
+      <Button x:Name="DeleteBtn"  Content="Удалить"   Background="White" Foreground="Black"/>
 
-      <!-- 2. отдельная кнопка выбора -->
-      <Button Content="Выделить" Click="OnSelectToolClicked"
-              Background="White" Foreground="Black"/>
+      <Button x:Name="ShapesBtn"  Content="Фигуры"    Background="White" Foreground="Black"/>
+      <Button x:Name="StrokeBtn"  Content="Контур"    Background="White" Foreground="Black"/>
+      <Button x:Name="FillBtn"    Content="Заливка"   Background="White" Foreground="Black"/>
+      <Button x:Name="ThickBtn"   Content="Толщина"   Background="White" Foreground="Black"/>
 
-      <!-- 3. раскрывающиеся разделы -->
-      <Button Content="Фигуры" Click="OnShowShapes"
-              Background="White" Foreground="Black"/>
-      <Button Content="Контур" Click="OnShowStroke"
-              Background="White" Foreground="Black"/>
-      <Button Content="Заливка" Click="OnShowFill"
-              Background="White" Foreground="Black"/>
-      <Button Content="Толщина" Click="OnShowThickness"
-              Background="White" Foreground="Black"/>
+      <TextBlock Text=" | " Foreground="#999" VerticalAlignment="Center"/>
+
+      <Button x:Name="ZoomOutBtn" Content="Зум –"     Background="White" Foreground="Black"/>
+      <Button x:Name="ZoomInBtn"  Content="Зум +"     Background="White" Foreground="Black"/>
+      <Button x:Name="Zoom100Btn" Content="100%"      Background="White" Foreground="Black"/>
     </StackPanel>
 
-    <!-- СТРОКА НАСТРОЕК (одна из панелей) -->
-    <Grid Grid.Row="2" RowDefinitions="Auto,*">
-      <!-- тут мы будем показывать одну панель -->
+    <!-- Контейнер опций + холста -->
+    <!-- ClipToBounds=True: холст не может «залезть» на панель опций -->
+    <Grid Grid.Row="2" RowDefinitions="Auto,*" ClipToBounds="True">
+      <!-- Панель опций сверху (строка 0) -->
       <StackPanel x:Name="OptionsHost"
+                  Grid.Row="0"
                   Orientation="Horizontal"
                   Spacing="6"
-                  Margin="12,6,12,6">
-        <!-- по умолчанию пусто -->
-      </StackPanel>
+                  Margin="12,6,12,6" />
 
-      <!-- ХОЛСТ -->
-      <Border Grid.Row="1"
+      <!-- Холст в серой рамке ниже (строка 1) -->
+      <Border x:Name="CanvasHost"
+              Grid.Row="1"
               Margin="12"
               Background="#888"
               CornerRadius="6"
               Padding="6">
-        <Canvas Background="White"
-                PointerPressed="OnCanvasPointerPressed"
-                PointerMoved="OnCanvasPointerMoved"
-                PointerReleased="OnCanvasPointerReleased" />
+        <Canvas x:Name="DrawCanvas" Background="White"/>
       </Border>
     </Grid>
   </Grid>

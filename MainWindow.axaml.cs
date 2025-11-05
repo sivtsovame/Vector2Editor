@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using System.IO;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
@@ -17,17 +20,21 @@ namespace VectorEditor
         private Tool _currentTool = Tool.Rectangle;
         private PanelKind _openedPanel = PanelKind.None;
 
+        // Рисование
         private bool _isDrawingTwoClick = false;
         private bool _isDrawingDrag = false;
         private Point _startPoint;
 
+        // Полигон
         private bool _isPolygonDrawing = false;
         private readonly List<Point> _polygonPoints = new();
         private Polyline? _polygonPreview;
 
+        // Канва/превью
         private Canvas? _activeCanvas;
         private Shape? _previewShape;
 
+        // Перемещение фигуры
         private bool _isMoving = false;
         private Shape? _movingShape;
         private Point _movePointerStart;
@@ -35,26 +42,29 @@ namespace VectorEditor
         private Point _moveLineStart;
         private Point _moveLineEnd;
 
-        // Панорамирование холста
+        // Панорамирование
         private bool _isPanning = false;
         private bool _isSpaceDown = false;
         private Point _panStartPointer;
         private Point _panStartTranslate;
 
+        // Выделение
         private Shape? _selectedShape;
         private IBrush? _savedStroke;
         private double _savedStrokeThickness;
         private AvaloniaList<double>? _savedDash;
 
+        // Текущие стили
         private IBrush _currentStroke = Brushes.DarkSlateBlue;
         private IBrush _currentFill = new SolidColorBrush(Color.FromRgb(180, 205, 255));
         private double _currentStrokeThickness = 2;
 
+        // Undo/Redo
         private const int MaxHistory = 5;
         private readonly List<ICanvasAction> _undoStack = new();
         private readonly List<ICanvasAction> _redoStack = new();
 
-        // ZOOM + PAN
+        // Zoom
         private double _zoom = 1.0;
         private const double MinZoom = 0.25;
         private const double MaxZoom = 4.0;
@@ -64,11 +74,25 @@ namespace VectorEditor
         private readonly TranslateTransform _translate = new();
         private readonly TransformGroup _transformGroup = new();
 
+        // UI зума
+        private TextBlock? _zoomPercent;
+        private Slider? _zoomSlider;
+
+        // Путь последнего сохранения
+        private string? _lastSavedPath;
+
         public MainWindow()
         {
             InitializeComponent();
+
+            // Клавиши
             this.KeyDown += OnRootKeyDown;
             this.KeyUp   += OnRootKeyUp;
+
+            // Кнопки верхнего тулбара
+            this.FindControl<Button>("OpenBtn")!.Click   += OnOpenVec;
+            this.FindControl<Button>("SaveBtn")!.Click   += OnSaveVec;
+            this.FindControl<Button>("SaveAsBtn")!.Click += OnSaveAsVec;
 
             this.FindControl<Button>("UndoBtn")!.Click    += OnUndo;
             this.FindControl<Button>("RedoBtn")!.Click    += OnRedo;
@@ -85,6 +109,27 @@ namespace VectorEditor
             this.FindControl<Button>("ZoomOutBtn")!.Click += OnZoomOut;
             this.FindControl<Button>("Zoom100Btn")!.Click += OnZoomReset;
 
+            this.FindControl<Button>("ExportSvgBtn")!.Click += OnExportSvg;
+
+            _zoomPercent = this.FindControl<TextBlock>("ZoomPercent");
+            _zoomSlider  = this.FindControl<Slider>("ZoomSlider");
+
+            if (_zoomSlider != null)
+            {
+                _zoomSlider.PropertyChanged += (s, e) =>
+                {
+                    if (e.Property.Name == nameof(Slider.Value) && _zoomSlider.IsFocused)
+                    {
+                        var c = GetMainCanvas(); if (c is null) return;
+                        var center = new Point(c.Bounds.Width / 2, c.Bounds.Height / 2);
+                        var targetZoom = Math.Clamp((_zoomSlider.Value / 100.0), MinZoom, MaxZoom);
+                        ApplyZoomAt(center, targetZoom);
+                        UpdateZoomUi();
+                    }
+                };
+            }
+            UpdateZoomUi();
+
             var canvas = GetMainCanvas();
             if (canvas != null)
             {
@@ -93,7 +138,7 @@ namespace VectorEditor
                 canvas.PointerReleased     += OnCanvasPointerReleased;
                 canvas.PointerWheelChanged += OnCanvasWheel;
 
-                _transformGroup.Children = new Transforms { _scale, _translate }; // порядок: Scale, потом Translate
+                _transformGroup.Children = new Transforms { _scale, _translate };
                 _scale.ScaleX = _scale.ScaleY = _zoom;
                 _translate.X = 0;
                 _translate.Y = 0;
@@ -105,10 +150,12 @@ namespace VectorEditor
                 host.SizeChanged += (_, __) => ClampTransformToHost();
         }
 
+        // ===== доступ к элементам
         private StackPanel? GetOptionsHost() => this.FindControl<StackPanel>("OptionsHost");
         private Canvas? GetMainCanvas() => this.FindControl<Canvas>("DrawCanvas");
         private Border? GetHost() => this.FindControl<Border>("CanvasHost");
 
+        // ===== панели опций
         private void ShowPanel(PanelKind kind)
         {
             var host = GetOptionsHost();
@@ -193,12 +240,14 @@ namespace VectorEditor
         public void OnShowFill(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPanel(PanelKind.Fill);
         public void OnShowThickness(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPanel(PanelKind.Thickness);
 
+        // ===== выбор инструмента
         public void OnSelectToolClicked(object? s, Avalonia.Interactivity.RoutedEventArgs e) { _currentTool = Tool.Select; ResetDrawingState(); }
         public void OnRectToolClicked  (object? s, Avalonia.Interactivity.RoutedEventArgs e) { _currentTool = Tool.Rectangle; ResetDrawingState(); }
         public void OnEllipseToolClicked(object? s, Avalonia.Interactivity.RoutedEventArgs e){ _currentTool = Tool.Ellipse;  ResetDrawingState(); }
         public void OnLineToolClicked  (object? s, Avalonia.Interactivity.RoutedEventArgs e) { _currentTool = Tool.Line;     ResetDrawingState(); }
         public void OnPolygonToolClicked(object? s, Avalonia.Interactivity.RoutedEventArgs e){ _currentTool = Tool.Polygon;  ResetDrawingState(); }
 
+        // ===== стили
         public void OnStrokeBlue (object? s, Avalonia.Interactivity.RoutedEventArgs e) { _currentStroke = Brushes.DarkSlateBlue; ApplyStrokeToSelected(); }
         public void OnStrokeRed  (object? s, Avalonia.Interactivity.RoutedEventArgs e) { _currentStroke = Brushes.Crimson;       ApplyStrokeToSelected(); }
         public void OnStrokeBlack(object? s, Avalonia.Interactivity.RoutedEventArgs e) { _currentStroke = Brushes.Black;         ApplyStrokeToSelected(); }
@@ -221,10 +270,11 @@ namespace VectorEditor
             }
         }
 
-        private void ApplyStrokeToSelected() { if (_selectedShape is null) return; _selectedShape.Stroke = _currentStroke; }
+        private void ApplyStrokeToSelected()  { if (_selectedShape is null) return; _selectedShape.Stroke = _currentStroke; }
         private void ApplyFillToSelected()    { if (_selectedShape is null) return; if (_selectedShape is not Line) _selectedShape.Fill = _currentFill; }
         private void ApplyThicknessToSelected(){ if (_selectedShape is null) return; _selectedShape.StrokeThickness = _currentStrokeThickness; }
 
+        // ===== Undo/Redo
         public void OnUndo(object? s, Avalonia.Interactivity.RoutedEventArgs e)
         {
             if (_undoStack.Count == 0) return;
@@ -239,22 +289,35 @@ namespace VectorEditor
             act.Redo(); _undoStack.Add(act);
             if (_undoStack.Count > MaxHistory) _undoStack.RemoveAt(0);
         }
-        private void PushAction(ICanvasAction action) { _undoStack.Add(action); if (_undoStack.Count > MaxHistory) _undoStack.RemoveAt(0); _redoStack.Clear(); }
+        private void PushAction(ICanvasAction action)
+        {
+            _undoStack.Add(action);
+            if (_undoStack.Count > MaxHistory) _undoStack.RemoveAt(0);
+            _redoStack.Clear();
+        }
 
+        // ===== Горячие клавиши
         private void OnRootKeyDown(object? s, KeyEventArgs e)
         {
             if (e.Key == Key.Delete || e.Key == Key.Back)
             {
                 OnDeleteClicked(this, new Avalonia.Interactivity.RoutedEventArgs());
                 e.Handled = true;
+                return;
             }
             if (e.Key == Key.Space) _isSpaceDown = true;
+
+            var ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
+            if (ctrl && (e.Key == Key.OemPlus || e.Key == Key.Add))      { OnZoomIn(this, new Avalonia.Interactivity.RoutedEventArgs());  e.Handled = true; return; }
+            if (ctrl && (e.Key == Key.OemMinus || e.Key == Key.Subtract)) { OnZoomOut(this, new Avalonia.Interactivity.RoutedEventArgs()); e.Handled = true; return; }
+            if (ctrl && e.Key == Key.D0)                                  { OnZoomReset(this, new Avalonia.Interactivity.RoutedEventArgs());e.Handled = true; return; }
         }
         private void OnRootKeyUp(object? s, KeyEventArgs e)
         {
             if (e.Key == Key.Space) { _isSpaceDown = false; _isPanning = false; }
         }
 
+        // ===== Выделение/удаление
         private void SetSelectedShape(Shape? shape)
         {
             ClearSelectionVisual();
@@ -289,6 +352,7 @@ namespace VectorEditor
             }
         }
 
+        // ===== Указатели
         public void OnCanvasPointerPressed(object? sender, PointerPressedEventArgs e)
         {
             if (sender is not Canvas canvas) return;
@@ -448,15 +512,18 @@ namespace VectorEditor
             }
         }
 
+        // Колесо/трекпад
         public void OnCanvasWheel(object? sender, PointerWheelEventArgs e)
         {
             if (sender is not Canvas canvas) return;
             var pos = e.GetPosition(canvas);
             var factor = e.Delta.Y > 0 ? ZoomStep : (1.0 / ZoomStep);
             ApplyZoomAt(pos, _zoom * factor);
+            UpdateZoomUi();
             e.Handled = true;
         }
 
+        // ===== Полигон
         private void FinishPolygon(Canvas canvas)
         {
             if (_polygonPreview is not null) { canvas.Children.Remove(_polygonPreview); _polygonPreview = null; }
@@ -472,6 +539,7 @@ namespace VectorEditor
             _isPolygonDrawing = false; _polygonPoints.Clear();
         }
 
+        // ===== Превью/коммит фигур
         private void CreatePreview(Canvas canvas, Point start)
         {
             if (_previewShape is not null) canvas.Children.Remove(_previewShape);
@@ -523,6 +591,7 @@ namespace VectorEditor
             _isDrawingTwoClick = false; _activeCanvas = null;
         }
 
+        // ===== Утилиты фигур/хиттест
         private void PlaceRect(Shape shape, Point p1, Point p2)
         {
             double x = Math.Min(p1.X, p2.X), y = Math.Min(p1.Y, p2.Y);
@@ -552,7 +621,7 @@ namespace VectorEditor
                             if (IsPointNearLine(p, line.StartPoint, line.EndPoint, 5)) return line;
                             break;
                         case Polygon poly:
-                            if (poly.Bounds.Contains(p)) return poly; // при необходимости заменить на hit-test по полигону
+                            if (poly.Bounds.Contains(p)) return poly; // bbox
                             break;
                     }
                 }
@@ -597,6 +666,7 @@ namespace VectorEditor
             line.StartPoint = s; line.EndPoint = e;
         }
 
+        // ===== Зум/рамка
         private void ApplyZoomAt(Point canvasPoint, double newZoom)
         {
             newZoom = Math.Clamp(newZoom, MinZoom, MaxZoom);
@@ -611,6 +681,7 @@ namespace VectorEditor
 
             ClampTransformToHost();
         }
+
         private void ClampTransformToHost()
         {
             var canvas = GetMainCanvas(); var host = GetHost();
@@ -628,6 +699,7 @@ namespace VectorEditor
             else          _translate.Y = Math.Clamp(_translate.Y, hh - sh, 0);
         }
 
+        // ===== Actions
         private interface ICanvasAction { void Undo(); void Redo(); }
         private class AddShapeAction : ICanvasAction
         {
@@ -644,17 +716,20 @@ namespace VectorEditor
             public void Redo() => _canvas.Children.Remove(_shape);
         }
 
+        // ===== Кнопки зума
         public void OnZoomIn (object? s, Avalonia.Interactivity.RoutedEventArgs e)
         {
             var c = GetMainCanvas(); if (c is null) return;
             var center = new Point(c.Bounds.Width / 2, c.Bounds.Height / 2);
             ApplyZoomAt(center, _zoom * 1.2);
+            UpdateZoomUi();
         }
         public void OnZoomOut(object? s, Avalonia.Interactivity.RoutedEventArgs e)
         {
             var c = GetMainCanvas(); if (c is null) return;
             var center = new Point(c.Bounds.Width / 2, c.Bounds.Height / 2);
             ApplyZoomAt(center, _zoom / 1.2);
+            UpdateZoomUi();
         }
         public void OnZoomReset(object? s, Avalonia.Interactivity.RoutedEventArgs e)
         {
@@ -662,6 +737,439 @@ namespace VectorEditor
             ApplyZoomAt(new Point(0, 0), 1.0);
             _translate.X = 0; _translate.Y = 0;
             ClampTransformToHost();
+            UpdateZoomUi();
+        }
+        private void UpdateZoomUi()
+        {
+            if (_zoomPercent != null) _zoomPercent.Text = $"{Math.Round(_zoom * 100)}%";
+            if (_zoomSlider != null)  _zoomSlider.Value = Math.Round(_zoom * 100);
+        }
+
+        // ===== Экспорт SVG (как раньше)
+        private async void OnExportSvg(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            var canvas = GetMainCanvas(); if (canvas is null) return;
+            var (cw, ch) = (canvas.Bounds.Width, canvas.Bounds.Height);
+            if (cw <= 0 || ch <= 0) return;
+
+            var sfd = new SaveFileDialog
+            {
+                Title = "Экспорт в SVG",
+                InitialFileName = "vector_drawing.svg",
+                Filters = new List<FileDialogFilter> { new FileDialogFilter { Name = "SVG", Extensions = { "svg" } } }
+            };
+            var path = await sfd.ShowAsync(this);
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            var svg = new StringBuilder();
+            var inv = CultureInfo.InvariantCulture;
+
+            svg.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            svg.AppendLine($"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{cw.ToString(inv)}\" height=\"{ch.ToString(inv)}\" viewBox=\"0 0 {cw.ToString(inv)} {ch.ToString(inv)}\">");
+            svg.AppendLine($"  <rect x=\"0\" y=\"0\" width=\"{cw.ToString(inv)}\" height=\"{ch.ToString(inv)}\" fill=\"white\"/>");
+
+            foreach (var child in canvas.Children)
+            {
+                if (child is Rectangle r)
+                {
+                    double x = Canvas.GetLeft(r), y = Canvas.GetTop(r);
+                    double w = r.Width, h = r.Height;
+                    var (stroke, sw, dash) = SvgStroke(r);
+                    var fill = SvgFill(r);
+                    svg.AppendLine($"  <rect x=\"{x.ToString(inv)}\" y=\"{y.ToString(inv)}\" width=\"{w.ToString(inv)}\" height=\"{h.ToString(inv)}\" {fill}{stroke}{sw}{dash}/>");
+                }
+                else if (child is Ellipse el)
+                {
+                    double x = Canvas.GetLeft(el), y = Canvas.GetTop(el);
+                    double w = el.Width, h = el.Height;
+                    double cx = x + w / 2.0, cy = y + h / 2.0, rx = w / 2.0, ry = h / 2.0;
+                    var (stroke, sw, dash) = SvgStroke(el);
+                    var fill = SvgFill(el);
+                    svg.AppendLine($"  <ellipse cx=\"{cx.ToString(inv)}\" cy=\"{cy.ToString(inv)}\" rx=\"{rx.ToString(inv)}\" ry=\"{ry.ToString(inv)}\" {fill}{stroke}{sw}{dash}/>");
+                }
+                else if (child is Line ln)
+                {
+                    var (stroke, sw, dash) = SvgStroke(ln);
+                    svg.AppendLine($"  <line x1=\"{ln.StartPoint.X.ToString(inv)}\" y1=\"{ln.StartPoint.Y.ToString(inv)}\" x2=\"{ln.EndPoint.X.ToString(inv)}\" y2=\"{ln.EndPoint.Y.ToString(inv)}\" {stroke}{sw}{dash}/>");
+                }
+                else if (child is Polygon pg)
+                {
+                    var (stroke, sw, dash) = SvgStroke(pg);
+                    var fill = SvgFill(pg);
+                    var pts = new StringBuilder();
+                    foreach (var p in pg.Points) pts.Append($"{p.X.ToString(inv)},{p.Y.ToString(inv)} ");
+                    svg.AppendLine($"  <polygon points=\"{pts.ToString().Trim()}\" {fill}{stroke}{sw}{dash}/>");
+                }
+            }
+
+            svg.AppendLine("</svg>");
+            try { await File.WriteAllTextAsync(path, svg.ToString(), Encoding.UTF8); }
+            catch (Exception ex) { await new SimpleMessageBox("Ошибка записи файла", ex.Message).ShowDialog(this); }
+        }
+        private static string ColorToHex(Color c) => $"#{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}";
+        private static string BrushToSvgPaint(IBrush? brush)
+        {
+            if (brush is SolidColorBrush scb) return ColorToHex(scb.Color);
+            return "none";
+        }
+        private static (string stroke, string sw, string dash) SvgStroke(Shape s)
+        {
+            var stroke = $"stroke=\"{BrushToSvgPaint(s.Stroke)}\" ";
+            var sw = $"stroke-width=\"{s.StrokeThickness.ToString(CultureInfo.InvariantCulture)}\" ";
+            string dash = "";
+            if (s.StrokeDashArray is { Count: > 0 })
+            {
+                var inv = CultureInfo.InvariantCulture;
+                var sb = new StringBuilder();
+                for (int i = 0; i < s.StrokeDashArray.Count; i++) { if (i > 0) sb.Append(","); sb.Append(s.StrokeDashArray[i].ToString(inv)); }
+                dash = $"stroke-dasharray=\"{sb}\" ";
+            }
+            return (stroke, sw, dash);
+        }
+        private static string SvgFill(Shape s)
+        {
+            if (s is Line) return "fill=\"none\" ";
+            if (s.Fill is SolidColorBrush scb) return $"fill=\"{ColorToHex(scb.Color)}\" ";
+            return "fill=\"none\" ";
+        }
+
+        // ====== Save/Load .vec ======
+        private async void OnOpenVec(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            var ofd = new OpenFileDialog
+            {
+                Title = "Открыть проект (.vec)",
+                AllowMultiple = false,
+                Filters = new List<FileDialogFilter>
+                {
+                    new FileDialogFilter { Name = "VectorEditor (*.vec)", Extensions = { "vec" } },
+                    new FileDialogFilter { Name = "All files", Extensions = { "*" } }
+                }
+            };
+            var res = await ofd.ShowAsync(this);
+            if (res is null || res.Length == 0) return;
+
+            try
+            {
+                LoadFromVec(res[0]);
+                _lastSavedPath = res[0];
+            }
+            catch (Exception ex)
+            {
+                await new SimpleMessageBox("Ошибка загрузки файла", ex.Message).ShowDialog(this);
+            }
+        }
+
+        private async void OnSaveVec(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(_lastSavedPath))
+            {
+                OnSaveAsVec(sender, e);
+                return;
+            }
+            try
+            {
+                SaveToVec(_lastSavedPath!);
+            }
+            catch (Exception ex)
+            {
+                await new SimpleMessageBox("Ошибка сохранения файла", ex.Message).ShowDialog(this);
+            }
+        }
+
+        private async void OnSaveAsVec(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            var sfd = new SaveFileDialog
+            {
+                Title = "Сохранить проект",
+                InitialFileName = "project.vec",
+                Filters = new List<FileDialogFilter>
+                {
+                    new FileDialogFilter { Name = "VectorEditor (*.vec)", Extensions = { "vec" } },
+                    new FileDialogFilter { Name = "All files", Extensions = { "*" } }
+                }
+            };
+            var path = await sfd.ShowAsync(this);
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            try
+            {
+                SaveToVec(path);
+                _lastSavedPath = path;
+            }
+            catch (Exception ex)
+            {
+                await new SimpleMessageBox("Ошибка сохранения файла", ex.Message).ShowDialog(this);
+            }
+        }
+
+        private void SaveToVec(string path)
+        {
+            var canvas = GetMainCanvas() ?? throw new InvalidOperationException("Canvas not found");
+            using var sw = new StreamWriter(path, false, Encoding.UTF8);
+            var inv = CultureInfo.InvariantCulture;
+
+            sw.WriteLine("VEC1");
+            sw.WriteLine($"Zoom:{_zoom.ToString(inv)}");
+            sw.WriteLine($"Count:{canvas.Children.Count}");
+
+            foreach (var child in canvas.Children)
+            {
+                sw.WriteLine("BEGIN_SHAPE");
+                switch (child)
+                {
+                    case Rectangle r:
+                    {
+                        sw.WriteLine("Type:Rectangle");
+                        double x = Canvas.GetLeft(r), y = Canvas.GetTop(r);
+                        sw.WriteLine($"X:{x.ToString(inv)}");
+                        sw.WriteLine($"Y:{y.ToString(inv)}");
+                        sw.WriteLine($"Width:{r.Width.ToString(inv)}");
+                        sw.WriteLine($"Height:{r.Height.ToString(inv)}");
+                        sw.WriteLine($"Fill:{BrushToString(r.Fill)}");
+                        sw.WriteLine($"Stroke:{BrushToString(r.Stroke)}");
+                        sw.WriteLine($"StrokeThickness:{r.StrokeThickness.ToString(inv)}");
+                        break;
+                    }
+                    case Ellipse el:
+                    {
+                        sw.WriteLine("Type:Ellipse");
+                        double x = Canvas.GetLeft(el), y = Canvas.GetTop(el);
+                        sw.WriteLine($"X:{x.ToString(inv)}");
+                        sw.WriteLine($"Y:{y.ToString(inv)}");
+                        sw.WriteLine($"Width:{el.Width.ToString(inv)}");
+                        sw.WriteLine($"Height:{el.Height.ToString(inv)}");
+                        sw.WriteLine($"Fill:{BrushToString(el.Fill)}");
+                        sw.WriteLine($"Stroke:{BrushToString(el.Stroke)}");
+                        sw.WriteLine($"StrokeThickness:{el.StrokeThickness.ToString(inv)}");
+                        break;
+                    }
+                    case Line ln:
+                    {
+                        sw.WriteLine("Type:Line");
+                        sw.WriteLine($"X:{ln.StartPoint.X.ToString(inv)}");
+                        sw.WriteLine($"Y:{ln.StartPoint.Y.ToString(inv)}");
+                        sw.WriteLine($"EndX:{ln.EndPoint.X.ToString(inv)}");
+                        sw.WriteLine($"EndY:{ln.EndPoint.Y.ToString(inv)}");
+                        sw.WriteLine($"Fill:{BrushToString(null)}");
+                        sw.WriteLine($"Stroke:{BrushToString(ln.Stroke)}");
+                        sw.WriteLine($"StrokeThickness:{ln.StrokeThickness.ToString(inv)}");
+                        break;
+                    }
+                    case Polygon pg:
+                    {
+                        sw.WriteLine("Type:Polygon");
+                        // Для многоугольника сохраним абсолютные точки
+                        sw.WriteLine("X:0");
+                        sw.WriteLine("Y:0");
+                        sw.WriteLine("Width:0");
+                        sw.WriteLine("Height:0");
+                        sw.WriteLine($"Fill:{BrushToString(pg.Fill)}");
+                        sw.WriteLine($"Stroke:{BrushToString(pg.Stroke)}");
+                        sw.WriteLine($"StrokeThickness:{pg.StrokeThickness.ToString(inv)}");
+                        var sb = new StringBuilder();
+                        for (int i = 0; i < pg.Points.Count; i++)
+                        {
+                            if (i > 0) sb.Append(';');
+                            sb.Append(pg.Points[i].X.ToString(inv));
+                            sb.Append(',');
+                            sb.Append(pg.Points[i].Y.ToString(inv));
+                        }
+                        sw.WriteLine($"Points:{sb}");
+                        break;
+                    }
+                }
+                sw.WriteLine("END_SHAPE");
+            }
+        }
+
+        private void LoadFromVec(string path)
+        {
+            var canvas = GetMainCanvas() ?? throw new InvalidOperationException("Canvas not found");
+            var lines = File.ReadAllLines(path);
+            if (lines.Length == 0 || lines[0].Trim() != "VEC1")
+                throw new InvalidDataException("Неверный формат файла (.vec)");
+
+            canvas.Children.Clear();
+
+            var inv = CultureInfo.InvariantCulture;
+            int i = 1;
+            double zoom = 1.0;
+            // читаем заголовок
+            for (; i < lines.Length; i++)
+            {
+                var l = lines[i].Trim();
+                if (string.IsNullOrWhiteSpace(l)) continue;
+                if (l.StartsWith("Zoom:", StringComparison.OrdinalIgnoreCase))
+                {
+                    double.TryParse(l.Substring(5), NumberStyles.Float, inv, out zoom);
+                    continue;
+                }
+                if (l.StartsWith("Count:", StringComparison.OrdinalIgnoreCase))
+                {
+                    // можно игнорировать
+                    continue;
+                }
+                if (l == "BEGIN_SHAPE") break;
+            }
+
+            while (i < lines.Length)
+            {
+                var l = lines[i++].Trim();
+                if (l != "BEGIN_SHAPE") break;
+
+                var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                while (i < lines.Length)
+                {
+                    var line = lines[i++].Trim();
+                    if (line == "END_SHAPE") break;
+                    var idx = line.IndexOf(':');
+                    if (idx <= 0) continue;
+                    var key = line.Substring(0, idx).Trim();
+                    var val = line.Substring(idx + 1).Trim();
+                    dict[key] = val;
+                }
+
+                string type = dict.ContainsKey("Type") ? dict["Type"] : "Rectangle";
+
+                if (type.Equals("Rectangle", StringComparison.OrdinalIgnoreCase))
+                {
+                    var r = new Rectangle
+                    {
+                        Width = GetDouble(dict, "Width", inv),
+                        Height = GetDouble(dict, "Height", inv),
+                        Fill = BrushFromString(GetString(dict, "Fill")),
+                        Stroke = BrushFromString(GetString(dict, "Stroke")),
+                        StrokeThickness = GetDouble(dict, "StrokeThickness", inv, 2)
+                    };
+                    Canvas.SetLeft(r, GetDouble(dict, "X", inv));
+                    Canvas.SetTop(r,  GetDouble(dict, "Y", inv));
+                    ClampRectShapeToCanvas(r);
+                    canvas.Children.Add(r);
+                }
+                else if (type.Equals("Ellipse", StringComparison.OrdinalIgnoreCase))
+                {
+                    var el = new Ellipse
+                    {
+                        Width = GetDouble(dict, "Width", inv),
+                        Height = GetDouble(dict, "Height", inv),
+                        Fill = BrushFromString(GetString(dict, "Fill")),
+                        Stroke = BrushFromString(GetString(dict, "Stroke")),
+                        StrokeThickness = GetDouble(dict, "StrokeThickness", inv, 2)
+                    };
+                    Canvas.SetLeft(el, GetDouble(dict, "X", inv));
+                    Canvas.SetTop(el,  GetDouble(dict, "Y", inv));
+                    ClampRectShapeToCanvas(el);
+                    canvas.Children.Add(el);
+                }
+                else if (type.Equals("Line", StringComparison.OrdinalIgnoreCase))
+                {
+                    var ln = new Line
+                    {
+                        StartPoint = new Point(GetDouble(dict, "X", inv),    GetDouble(dict, "Y", inv)),
+                        EndPoint   = new Point(GetDouble(dict, "EndX", inv), GetDouble(dict, "EndY", inv)),
+                        Stroke = BrushFromString(GetString(dict, "Stroke")),
+                        StrokeThickness = GetDouble(dict, "StrokeThickness", inv, 2)
+                    };
+                    ClampLineToCanvas(ln);
+                    canvas.Children.Add(ln);
+                }
+                else if (type.Equals("Polygon", StringComparison.OrdinalIgnoreCase))
+                {
+                    var pts = new AvaloniaList<Point>();
+                    if (dict.TryGetValue("Points", out var spts) && !string.IsNullOrWhiteSpace(spts))
+                    {
+                        var items = spts.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var p in items)
+                        {
+                            var parts = p.Split(',');
+                            if (parts.Length == 2
+                                && double.TryParse(parts[0], NumberStyles.Float, inv, out double px)
+                                && double.TryParse(parts[1], NumberStyles.Float, inv, out double py))
+                            {
+                                pts.Add(new Point(px, py));
+                            }
+                        }
+                    }
+
+                    var pg = new Polygon
+                    {
+                        Points = pts,
+                        Fill = BrushFromString(GetString(dict, "Fill")),
+                        Stroke = BrushFromString(GetString(dict, "Stroke")),
+                        StrokeThickness = GetDouble(dict, "StrokeThickness", inv, 2)
+                    };
+                    // points уже абсолютные — ограничивать перемещением не нужно
+                    canvas.Children.Add(pg);
+                }
+            }
+
+            // применяем зум из файла
+            ApplyZoomAt(new Point(0, 0), zoom);
+            _translate.X = 0; _translate.Y = 0;
+            ClampTransformToHost();
+            UpdateZoomUi();
+        }
+
+        private static string? GetString(Dictionary<string,string> d, string key)
+            => d.TryGetValue(key, out var v) ? v : null;
+
+        private static double GetDouble(Dictionary<string,string> d, string key, IFormatProvider inv, double def = 0.0)
+        {
+            if (!d.TryGetValue(key, out var s)) return def;
+            if (double.TryParse(s, NumberStyles.Float, inv, out var v)) return v;
+            return def;
+        }
+
+        private static IBrush BrushFromString(string? s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return Brushes.Transparent;
+            // Поддерживаем #ARGB или #RRGGBB (#AARRGGBB предпочтительно)
+            try
+            {
+                // Avalonia Color.Parse понимает #AARRGGBB и #RRGGBB
+                var c = Color.Parse(s);
+                return new SolidColorBrush(c);
+            }
+            catch
+            {
+                return Brushes.Transparent;
+            }
+        }
+
+        private static string BrushToString(IBrush? brush)
+        {
+            if (brush is SolidColorBrush scb)
+            {
+                var c = scb.Color;
+                return $"#{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}";
+            }
+            return "#00000000"; // transparent
+        }
+
+        // Простое окно сообщений
+        private class SimpleMessageBox : Window
+        {
+            public SimpleMessageBox(string title, string message)
+            {
+                Title = title;
+                Width = 420; Height = 180;
+                var btn = new Button { Content = "OK", Width = 80, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
+                btn.Click += (_, __) => Close();
+
+                Content = new Border
+                {
+                    Padding = new Thickness(16),
+                    Child = new StackPanel
+                    {
+                        Children =
+                        {
+                            new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,0,0,12) },
+                            btn
+                        }
+                    }
+                };
+            }
         }
     }
 }

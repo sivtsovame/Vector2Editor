@@ -18,6 +18,12 @@
                 Orientation="Horizontal"
                 Spacing="8"
                 Margin="12,6,12,0">
+      <Button x:Name="OpenBtn"    Content="Открыть"     Background="White" Foreground="Black"/>
+      <Button x:Name="SaveBtn"    Content="Сохранить"   Background="White" Foreground="Black"/>
+      <Button x:Name="SaveAsBtn"  Content="Сохранить как" Background="White" Foreground="Black"/>
+
+      <TextBlock Text=" | " Foreground="#999" VerticalAlignment="Center"/>
+
       <Button x:Name="UndoBtn"    Content="Отменить"  Background="White" Foreground="Black"/>
       <Button x:Name="RedoBtn"    Content="Повторить" Background="White" Foreground="Black"/>
 
@@ -34,19 +40,29 @@
       <Button x:Name="ZoomOutBtn" Content="Зум –"     Background="White" Foreground="Black"/>
       <Button x:Name="ZoomInBtn"  Content="Зум +"     Background="White" Foreground="Black"/>
       <Button x:Name="Zoom100Btn" Content="100%"      Background="White" Foreground="Black"/>
+
+      <TextBlock Text="  Масштаб:" Foreground="#bbb" VerticalAlignment="Center"/>
+      <TextBlock x:Name="ZoomPercent" Text="100%" Foreground="White"
+                 Margin="4,0,0,0" VerticalAlignment="Center"/>
+      <Slider x:Name="ZoomSlider" Width="140" Minimum="25" Maximum="400" Value="100"
+              Margin="6,0,0,0" VerticalAlignment="Center"/>
+
+      <TextBlock Text="  (Панорама: пробел или ПКМ)" Foreground="#bbb" VerticalAlignment="Center" Margin="8,0,0,0"/>
+
+      <TextBlock Text=" | " Foreground="#999" VerticalAlignment="Center" Margin="8,0,0,0"/>
+      <Button x:Name="ExportSvgBtn" Content="Экспорт SVG" Background="White" Foreground="Black"/>
     </StackPanel>
 
     <!-- Контейнер опций + холста -->
-    <!-- ClipToBounds=True: холст не может «залезть» на панель опций -->
     <Grid Grid.Row="2" RowDefinitions="Auto,*" ClipToBounds="True">
-      <!-- Панель опций сверху (строка 0) -->
+      <!-- Панель опций сверху -->
       <StackPanel x:Name="OptionsHost"
                   Grid.Row="0"
                   Orientation="Horizontal"
                   Spacing="6"
                   Margin="12,6,12,6" />
 
-      <!-- Холст в серой рамке ниже (строка 1) -->
+      <!-- Холст в серой рамке -->
       <Border x:Name="CanvasHost"
               Grid.Row="1"
               Margin="12"

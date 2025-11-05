@@ -12,7 +12,6 @@
                 Margin="12,10,12,6">
       <Button x:Name="OpenBtn"    Content="Открыть"        Background="White" Foreground="Black"/>
       <Button x:Name="SaveBtn"    Content="Сохранить"      Background="White" Foreground="Black"/>
-      <Button x:Name="SaveAsBtn"  Content="Сохранить как"  Background="White" Foreground="Black"/>
 
       <TextBlock Text=" | " Foreground="#AAA" VerticalAlignment="Center"/>
 
@@ -33,10 +32,6 @@
 
       <TextBlock Text=" | " Foreground="#AAA" VerticalAlignment="Center"/>
 
-      <Button x:Name="ZoomOutBtn" Content="Зум –"          Background="White" Foreground="Black"/>
-      <Button x:Name="ZoomInBtn"  Content="Зум +"          Background="White" Foreground="Black"/>
-      <Button x:Name="Zoom100Btn" Content="100%"           Background="White" Foreground="Black"/>
-
       <TextBlock Text="  Масштаб:" Foreground="#DDD" VerticalAlignment="Center" Margin="8,0,0,0"/>
       <TextBlock x:Name="ZoomPercent" Text="100%" Foreground="White"
                  Margin="4,0,0,0" VerticalAlignment="Center"/>
@@ -44,7 +39,6 @@
               Margin="6,0,0,0" VerticalAlignment="Center"/>
 
       <TextBlock Text=" | " Foreground="#AAA" VerticalAlignment="Center" Margin="8,0,0,0"/>
-      <Button x:Name="ExportSvgBtn" Content="Экспорт SVG"  Background="White" Foreground="Black"/>
     </StackPanel>
 
     <!-- Опции + холст -->

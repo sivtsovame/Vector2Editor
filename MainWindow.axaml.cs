@@ -559,14 +559,225 @@ namespace VectorEditor
                     break;
             }
         }
-        private void UpdatePreview(Point pos)
+        // Удаление кнопок масштабирования из конструктора
+        public MainWindow()
         {
-            if (_previewShape is null) return;
-            switch (_currentTool)
+            InitializeComponent();
+        
+            // Удаляем обработчики кнопок масштабирования
+            this.FindControl<Button>("ZoomInBtn")!.Click -= OnZoomIn;
+            this.FindControl<Button>("ZoomOutBtn")!.Click -= OnZoomOut;
+            this.FindControl<Button>("Zoom100Btn")!.Click -= OnZoomReset;
+        
+            // Удаляем обработку изменения масштаба колесиком
+            var canvas = GetMainCanvas();
+            if (canvas != null)
             {
-                case Tool.Rectangle:
-                case Tool.Ellipse: PlaceRect(_previewShape, _startPoint, pos); break;
-                case Tool.Line:    if (_previewShape is Line l) PlaceLine(l, _startPoint, pos); break;
+                canvas.PointerWheelChanged -= OnCanvasWheel;
+            }
+        
+            // Остальной код конструктора остается без изменений
+        }
+        
+        // Удаление метода обработки событий колесика
+        public void OnCanvasWheel(object? sender, PointerWheelEventArgs e)
+        {
+            // Этот метод можно удалить, так как масштабирование колесиком больше не используется
+        }
+        
+        // Исправление сохранения заливки в методе SaveToVec
+        private void SaveToVec(string path)
+        {
+            var canvas = GetMainCanvas() ?? throw new InvalidOperationException("Canvas not found");
+            using var sw = new StreamWriter(path, false, Encoding.UTF8);
+            var inv = CultureInfo.InvariantCulture;
+        
+            sw.WriteLine("VEC1");
+            sw.WriteLine($"Zoom:{_zoom.ToString(inv)}");
+            sw.WriteLine($"Count:{canvas.Children.Count}");
+        
+            foreach (var child in canvas.Children)
+            {
+                sw.WriteLine("BEGIN_SHAPE");
+                switch (child)
+                {
+                    case Rectangle r:
+                    {
+                        sw.WriteLine("Type:Rectangle");
+                        double x = Canvas.GetLeft(r), y = Canvas.GetTop(r);
+                        sw.WriteLine($"X:{x.ToString(inv)}");
+                        sw.WriteLine($"Y:{y.ToString(inv)}");
+                        sw.WriteLine($"Width:{r.Width.ToString(inv)}");
+                        sw.WriteLine($"Height:{r.Height.ToString(inv)}");
+                        sw.WriteLine($"Fill:{BrushToString(r.Fill)}"); // Убедимся, что заливка сохраняется
+                        sw.WriteLine($"Stroke:{BrushToString(r.Stroke)}");
+                        sw.WriteLine($"StrokeThickness:{r.StrokeThickness.ToString(inv)}");
+                        break;
+                    }
+                    case Ellipse el:
+                    {
+                        sw.WriteLine("Type:Ellipse");
+                        double x = Canvas.GetLeft(el), y = Canvas.GetTop(el);
+                        sw.WriteLine($"X:{x.ToString(inv)}");
+                        sw.WriteLine($"Y:{y.ToString(inv)}");
+                        sw.WriteLine($"Width:{el.Width.ToString(inv)}");
+                        sw.WriteLine($"Height:{el.Height.ToString(inv)}");
+                        sw.WriteLine($"Fill:{BrushToString(el.Fill)}"); // Убедимся, что заливка сохраняется
+                        sw.WriteLine($"Stroke:{BrushToString(el.Stroke)}");
+                        sw.WriteLine($"StrokeThickness:{el.StrokeThickness.ToString(inv)}");
+                        break;
+                    }
+                    case Line ln:
+                    {
+                        sw.WriteLine("Type:Line");
+                        sw.WriteLine($"X:{ln.StartPoint.X.ToString(inv)}");
+                        sw.WriteLine($"Y:{ln.StartPoint.Y.ToString(inv)}");
+                        sw.WriteLine($"EndX:{ln.EndPoint.X.ToString(inv)}");
+                        sw.WriteLine($"EndY:{ln.EndPoint.Y.ToString(inv)}");
+                        sw.WriteLine($"Fill:{BrushToString(null)}");
+                        sw.WriteLine($"Stroke:{BrushToString(ln.Stroke)}");
+                        sw.WriteLine($"StrokeThickness:{ln.StrokeThickness.ToString(inv)}");
+                        break;
+                    }
+                    case Polygon pg:
+                    {
+                        sw.WriteLine("Type:Polygon");
+                        sw.WriteLine("X:0");
+                        sw.WriteLine("Y:0");
+                        sw.WriteLine("Width:0");
+                        sw.WriteLine("Height:0");
+                        sw.WriteLine($"Fill:{BrushToString(pg.Fill)}"); // Убедимся, что заливка сохраняется
+                        sw.WriteLine($"Stroke:{BrushToString(pg.Stroke)}");
+                        sw.WriteLine($"StrokeThickness:{pg.StrokeThickness.ToString(inv)}");
+                        var sb = new StringBuilder();
+                        for (int i = 0; i < pg.Points.Count; i++)
+                        {
+                            if (i > 0) sb.Append(';');
+                            sb.Append(pg.Points[i].X.ToString(inv));
+                            sb.Append(',');
+                            sb.Append(pg.Points[i].Y.ToString(inv));
+                        }
+                        sw.WriteLine($"Points:{sb}");
+                        break;
+                    }
+                }
+                sw.WriteLine("END_SHAPE");
+            }
+        }
+        
+        // Исправление загрузки заливки в методе LoadFromVec
+        private void LoadFromVec(string path)
+        {
+            var canvas = GetMainCanvas() ?? throw new InvalidOperationException("Canvas not found");
+            var lines = File.ReadAllLines(path);
+            if (lines.Length == 0 || lines[0].Trim() != "VEC1")
+                throw new InvalidDataException("Неверный формат файла (.vec)");
+        
+            canvas.Children.Clear();
+        
+            var inv = CultureInfo.InvariantCulture;
+            int i = 1;
+            double zoom = 1.0;
+        
+            for (; i < lines.Length; i++)
+            {
+                var l = lines[i].Trim();
+                if (string.IsNullOrWhiteSpace(l)) continue;
+                if (l.StartsWith("Zoom:", StringComparison.OrdinalIgnoreCase))
+                {
+                    double.TryParse(l.Substring(5), NumberStyles.Float, inv, out zoom);
+                    continue;
+                }
+                if (l.StartsWith("Count:", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                if (l == "BEGIN_SHAPE") break;
+            }
+        
+            while (i < lines.Length)
+            {
+                var l = lines[i++].Trim();
+                if (l != "BEGIN_SHAPE") break;
+        
+                var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                while (i < lines.Length)
+                {
+                    var line = lines[i++].Trim();
+                    if (line == "END_SHAPE") break;
+                    var idx = line.IndexOf(':');
+                    if (idx <= 0) continue;
+                    var key = line.Substring(0, idx).Trim();
+                    var val = line.Substring(idx + 1).Trim();
+                    dict[key] = val;
+                }
+        
+                string type = dict.ContainsKey("Type") ? dict["Type"] : "Rectangle";
+        
+                if (type.Equals("Rectangle", StringComparison.OrdinalIgnoreCase))
+                {
+                    var r = new Rectangle
+                    {
+                        Width = GetDouble(dict, "Width", inv),
+                        Height = GetDouble(dict, "Height", inv),
+                        Fill = BrushFromString(GetString(dict, "Fill")), // Убедимся, что заливка загружается
+                        Stroke = BrushFromString(GetString(dict, "Stroke")),
+                        StrokeThickness = GetDouble(dict, "StrokeThickness", inv, 2)
+                    };
+                    Canvas.SetLeft(r, GetDouble(dict, "X", inv));
+                    Canvas.SetTop(r, GetDouble(dict, "Y", inv));
+                    ClampRectShapeToCanvas(r);
+                    canvas.Children.Add(r);
+                }
+                else if (type.Equals("Ellipse", StringComparison.OrdinalIgnoreCase))
+                {
+                    var el = new Ellipse
+                    {
+                        Width = GetDouble(dict, "Width", inv),
+                        Height = GetDouble(dict, "Height", inv),
+                        Fill = BrushFromString(GetString(dict, "Fill")), // Убедимся, что заливка загружается
+                        Stroke = BrushFromString(GetString(dict, "Stroke")),
+                        StrokeThickness = GetDouble(dict, "StrokeThickness", inv, 2)
+                    };
+                    Canvas.SetLeft(el, GetDouble(dict, "X", inv));
+                    Canvas.SetTop(el, GetDouble(dict, "Y", inv));
+                    ClampRectShapeToCanvas(el);
+                    canvas.Children.Add(el);
+                }
+                else if (type.Equals("Polygon", StringComparison.OrdinalIgnoreCase))
+                {
+                    var pts = new AvaloniaList<Point>();
+                    if (dict.TryGetValue("Points", out var spts) && !string.IsNullOrWhiteSpace(spts))
+                    {
+                        var items = spts.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var p in items)
+                        {
+                            var parts = p.Split(',');
+                            if (parts.Length == 2
+                                && double.TryParse(parts[0], NumberStyles.Float, inv, out double px)
+                                && double.TryParse(parts[1], NumberStyles.Float, inv, out double py))
+                            {
+                                pts.Add(new Point(px, py));
+                            }
+                        }
+                    }
+        
+                    var pg = new Polygon
+                    {
+                        Points = pts,
+                        Fill = BrushFromString(GetString(dict, "Fill")), // Убедимся, что заливка загружается
+                        Stroke = BrushFromString(GetString(dict, "Stroke")),
+                        StrokeThickness = GetDouble(dict, "StrokeThickness", inv, 2)
+                    };
+                    canvas.Children.Add(pg);
+                }
+            }
+        
+            ApplyZoomAt(new Point(0, 0), zoom);
+            _translate.X = 0; _translate.Y = 0;
+            ClampTransformToHost();
+            UpdateZoomUi();
+        }:    if (_previewShape is Line l) PlaceLine(l, _startPoint, pos); break;
             }
         }
         private void CommitShape(Point pos)
@@ -746,66 +957,91 @@ namespace VectorEditor
         }
 
         // ===== Экспорт SVG (как раньше)
-        private async void OnExportSvg(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+// ===== Экспорт SVG (фикс «p не существует»)
+private async void OnExportSvg(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+{
+    var canvas = GetMainCanvas(); if (canvas is null) return;
+    var (cw, ch) = (canvas.Bounds.Width, canvas.Bounds.Height);
+    if (cw <= 0 || ch <= 0) return;
+
+#pragma warning disable CS0618
+    var sfd = new SaveFileDialog
+    {
+        Title = "Экспорт в SVG",
+        InitialFileName = "vector_drawing.svg",
+        Filters = new List<FileDialogFilter> { new FileDialogFilter { Name = "SVG", Extensions = { "svg" } } }
+    };
+    var path = await sfd.ShowAsync(this);
+#pragma warning restore CS0618
+
+    if (string.IsNullOrWhiteSpace(path)) return;
+
+    var svg = new StringBuilder();
+    var inv = CultureInfo.InvariantCulture;
+
+    svg.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+    svg.AppendLine($"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{cw.ToString(inv)}\" height=\"{ch.ToString(inv)}\" viewBox=\"0 0 {cw.ToString(inv)} {ch.ToString(inv)}\">");
+    svg.AppendLine($"  <rect x=\"0\" y=\"0\" width=\"{cw.ToString(inv)}\" height=\"{ch.ToString(inv)}\" fill=\"white\"/>");
+
+    foreach (var child in canvas.Children)
+    {
+        if (child is Rectangle r)
         {
-            var canvas = GetMainCanvas(); if (canvas is null) return;
-            var (cw, ch) = (canvas.Bounds.Width, canvas.Bounds.Height);
-            if (cw <= 0 || ch <= 0) return;
+            double x = Canvas.GetLeft(r), y = Canvas.GetTop(r);
+            double w = r.Width, h = r.Height;
+            var (stroke, sw, dash) = SvgStroke(r);
+            var fill = SvgFill(r);
+            svg.AppendLine($"  <rect x=\"{x.ToString(inv)}\" y=\"{y.ToString(inv)}\" width=\"{w.ToString(inv)}\" height=\"{h.ToString(inv)}\" {fill}{stroke}{sw}{dash}/>");
+        }
+        else if (child is Ellipse el)
+        {
+            double x = Canvas.GetLeft(el), y = Canvas.GetTop(el);
+            double w = el.Width, h = el.Height;
+            double cx = x + w / 2.0, cy = y + h / 2.0, rx = w / 2.0, ry = h / 2.0;
+            var (stroke, sw, dash) = SvgStroke(el);
+            var fill = SvgFill(el);
+            svg.AppendLine($"  <ellipse cx=\"{cx.ToString(inv)}\" cy=\"{cy.ToString(inv)}\" rx=\"{rx.ToString(inv)}\" ry=\"{ry.ToString(inv)}\" {fill}{stroke}{sw}{dash}/>");
+        }
+        else if (child is Line ln)
+        {
+            var (stroke, sw, dash) = SvgStroke(ln);
+            svg.AppendLine($"  <line x1=\"{ln.StartPoint.X.ToString(inv)}\" y1=\"{ln.StartPoint.Y.ToString(inv)}\" x2=\"{ln.EndPoint.X.ToString(inv)}\" y2=\"{ln.EndPoint.Y.ToString(inv)}\" {stroke}{sw}{dash}/>");
+        }
+        else if (child is Polygon pg)
+        {
+            var (stroke, sw, dash) = SvgStroke(pg);
+            var fill = SvgFill(pg);            // Ошибочный код
+            private int MyMethod: int;
+            
+            // Исправленный код
+            private int MyMethod() { return 0; }
 
-            var sfd = new SaveFileDialog
+            // ✅ фикс: корректно обходим точки многоугольника
+            var pts = new StringBuilder();
+            foreach (var p in pg.Points)
             {
-                Title = "Экспорт в SVG",
-                InitialFileName = "vector_drawing.svg",
-                Filters = new List<FileDialogFilter> { new FileDialogFilter { Name = "SVG", Extensions = { "svg" } } }
-            };
-            var path = await sfd.ShowAsync(this);
-            if (string.IsNullOrWhiteSpace(path)) return;
-
-            var svg = new StringBuilder();
-            var inv = CultureInfo.InvariantCulture;
-
-            svg.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-            svg.AppendLine($"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{cw.ToString(inv)}\" height=\"{ch.ToString(inv)}\" viewBox=\"0 0 {cw.ToString(inv)} {ch.ToString(inv)}\">");
-            svg.AppendLine($"  <rect x=\"0\" y=\"0\" width=\"{cw.ToString(inv)}\" height=\"{ch.ToString(inv)}\" fill=\"white\"/>");
-
-            foreach (var child in canvas.Children)
-            {
-                if (child is Rectangle r)
-                {
-                    double x = Canvas.GetLeft(r), y = Canvas.GetTop(r);
-                    double w = r.Width, h = r.Height;
-                    var (stroke, sw, dash) = SvgStroke(r);
-                    var fill = SvgFill(r);
-                    svg.AppendLine($"  <rect x=\"{x.ToString(inv)}\" y=\"{y.ToString(inv)}\" width=\"{w.ToString(inv)}\" height=\"{h.ToString(inv)}\" {fill}{stroke}{sw}{dash}/>");
-                }
-                else if (child is Ellipse el)
-                {
-                    double x = Canvas.GetLeft(el), y = Canvas.GetTop(el);
-                    double w = el.Width, h = el.Height;
-                    double cx = x + w / 2.0, cy = y + h / 2.0, rx = w / 2.0, ry = h / 2.0;
-                    var (stroke, sw, dash) = SvgStroke(el);
-                    var fill = SvgFill(el);
-                    svg.AppendLine($"  <ellipse cx=\"{cx.ToString(inv)}\" cy=\"{cy.ToString(inv)}\" rx=\"{rx.ToString(inv)}\" ry=\"{ry.ToString(inv)}\" {fill}{stroke}{sw}{dash}/>");
-                }
-                else if (child is Line ln)
-                {
-                    var (stroke, sw, dash) = SvgStroke(ln);
-                    svg.AppendLine($"  <line x1=\"{ln.StartPoint.X.ToString(inv)}\" y1=\"{ln.StartPoint.Y.ToString(inv)}\" x2=\"{ln.EndPoint.X.ToString(inv)}\" y2=\"{ln.EndPoint.Y.ToString(inv)}\" {stroke}{sw}{dash}/>");
-                }
-                else if (child is Polygon pg)
-                {
-                    var (stroke, sw, dash) = SvgStroke(pg);
-                    var fill = SvgFill(pg);
-                    var pts = new StringBuilder();
-                    for (int i = 0; i < pg.Points.Count; i++) pts.Append($"{p.X.ToString(inv)},{p.Y.ToString(inv)} ");
-                    svg.AppendLine($"  <polygon points=\"{pts.ToString().Trim()}\" {fill}{stroke}{sw}{dash}/>");
-                }
+                if (pts.Length > 0) pts.Append(' ');
+                pts.Append(p.X.ToString(inv));
+                pts.Append(',');
+                pts.Append(p.Y.ToString(inv));
             }
 
-            svg.AppendLine("</svg>");
-            try { await File.WriteAllTextAsync(path, svg.ToString(), Encoding.UTF8); }
-            catch (Exception ex) { await new SimpleMessageBox("Ошибка записи файла", ex.Message).ShowDialog(this); }
+            svg.AppendLine($"  <polygon points=\"{pts}\" {fill}{stroke}{sw}{dash}/>");
         }
+    }
+
+    svg.AppendLine("</svg>");
+
+    try
+    {
+        await File.WriteAllTextAsync(path, svg.ToString(), Encoding.UTF8);
+    }
+    catch (Exception ex)
+    {
+        await new SimpleMessageBox("Ошибка записи файла", ex.Message).ShowDialog(this);
+    }
+}
+
         private static string ColorToHex(Color c) => $"#{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}";
         private static string BrushToSvgPaint(IBrush? brush)
         {

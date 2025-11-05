@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("VectorEditor")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7857e58c437d5abf6bc9dc5a1464e9be94f73258")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0ef862c4ae5643be817cde3ef0c40d1ddc13c211")]
 [assembly: System.Reflection.AssemblyProductAttribute("VectorEditor")]
 [assembly: System.Reflection.AssemblyTitleAttribute("VectorEditor")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

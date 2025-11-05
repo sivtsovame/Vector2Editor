@@ -797,7 +797,7 @@ namespace VectorEditor
                     var (stroke, sw, dash) = SvgStroke(pg);
                     var fill = SvgFill(pg);
                     var pts = new StringBuilder();
-                    foreach (var p in pg.Points) pts.Append($"{p.X.ToString(inv)},{p.Y.ToString(inv)} ");
+                    for (int i = 0; i < pg.Points.Count; i++) pts.Append($"{p.X.ToString(inv)},{p.Y.ToString(inv)} ");
                     svg.AppendLine($"  <polygon points=\"{pts.ToString().Trim()}\" {fill}{stroke}{sw}{dash}/>");
                 }
             }

@@ -298,14 +298,32 @@ namespace VectorEditor
             {
                 OnDeleteClicked(this, new RoutedEventArgs());
                 e.Handled = true;
+                return; }
+                // ===== Горячие клавиши Undo / Redo =====
+            var ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
+
+            if (ctrl && e.Key == Key.Z)
+            {
+                if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+                    OnRedo(this, new RoutedEventArgs());  // Ctrl+Shift+Z → Redo
+                else
+                    OnUndo(this, new RoutedEventArgs());  // Ctrl+Z → Undo
+                e.Handled = true;
                 return;
             }
-            if (e.Key == Key.Space) _isSpaceDown = true;
 
-            var ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
+            if (ctrl && e.Key == Key.Y)
+            {
+                OnRedo(this, new RoutedEventArgs());      // Ctrl+Y → Redo
+                e.Handled = true;
+                return;
+            
+            }
+            if (e.Key == Key.Space) _isSpaceDown = true;
             if (ctrl && (e.Key == Key.OemPlus || e.Key == Key.Add))        { ZoomAroundCenter(1.2);    e.Handled = true; return; }
             if (ctrl && (e.Key == Key.OemMinus || e.Key == Key.Subtract))  { ZoomAroundCenter(1/1.2);  e.Handled = true; return; }
             if (ctrl && e.Key == Key.D0)
+            
             {
                 ApplyZoomAt(new Point(0, 0), 1.0);
                 _translate.X = 0; _translate.Y = 0;
